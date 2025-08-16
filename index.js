@@ -192,41 +192,90 @@ async function todayTemps(lat, lon, timezone) {
         if (!response.ok) throw new Error("Failed to fetch hourly temperatures");
         const data = await response.json();
 
-        // Get today's date in the city's timezone
-        let cityDate = new Date((Date.now() / 1000 + timezone) * 1000);
-        let todayDate = cityDate.toISOString().split("T")[0];
+        // Ensure we have data
+        if (!data.list || data.list.length === 0) {
+            console.error("No forecast data available");
+            document.getElementById("todayTempContainer").innerHTML = `
+                <div class="text-center">
+                    <h6>No hourly data available</h6>
+                </div>
+            `;
+            return;
+        }
+
+        // Get current city time and today's date
+        let currentCityTime = new Date((Date.now() / 1000 + timezone) * 1000);
+        let todayDate = currentCityTime.toISOString().split("T")[0];
         
+        // Try to get today's forecasts first
         let todayForecasts = data.list.filter(item => item.dt_txt.startsWith(todayDate));
         
-        // If no forecasts for today, take the first available forecasts
-        if (todayForecasts.length === 0) {
-            todayForecasts = data.list.slice(0, 6);
+        // If no today's forecasts or very few, get the next available ones
+        let selectedForecasts = [];
+        if (todayForecasts.length < 3) {
+            // Take the first 6 available forecasts
+            selectedForecasts = data.list.slice(0, 6);
         } else {
-            todayForecasts = todayForecasts.slice(0, 6);
+            // Take up to 6 from today's forecasts
+            selectedForecasts = todayForecasts.slice(0, 6);
+        }
+
+        // Ensure we have at least some forecasts
+        if (selectedForecasts.length === 0) {
+            selectedForecasts = data.list.slice(0, Math.min(6, data.list.length));
         }
 
         let todayHtml = "";
-        todayForecasts.forEach(item => {
-            // Convert time to city's timezone
-            let cityTime = new Date((new Date(item.dt_txt).getTime() / 1000 + timezone) * 1000);
-            let time = cityTime.toUTCString().split(' ')[4].slice(0, 5); // Get HH:MM format
-            let temp = item.main.temp.toFixed(1);
-            let icon = item.weather[0].icon;
+        selectedForecasts.forEach(item => {
+            try {
+                // Parse the datetime from the API
+                let itemDate = new Date(item.dt_txt);
+                
+                // Convert to city timezone
+                let cityTime = new Date(itemDate.getTime() + (timezone * 1000));
+                
+                // Format time as HH:MM in 12-hour format
+                let hours = cityTime.getUTCHours();
+                let minutes = cityTime.getUTCMinutes().toString().padStart(2, '0');
+                let ampm = hours >= 12 ? 'PM' : 'AM';
+                hours = hours % 12;
+                hours = hours ? hours : 12; // the hour '0' should be '12'
+                let timeString = `${hours}:${minutes} ${ampm}`;
+                
+                let temp = item.main.temp.toFixed(1);
+                let icon = item.weather[0].icon;
 
-            todayHtml += `
-                <div class="todayTemp text-center">
-                    <h6 class="m-0">${time}</h6>
-                    <img src="https://openweathermap.org/img/wn/${icon}@2x.png" alt="icon" width="35px">
-                    <h5>${temp}&deg;C</h5>
+                todayHtml += `
+                    <div class="todayTemp text-center">
+                        <h6 class="m-0">${timeString}</h6>
+                        <img src="https://openweathermap.org/img/wn/${icon}@2x.png" alt="icon" width="35px">
+                        <h5>${temp}&deg;C</h5>
+                    </div>
+                `;
+            } catch (itemError) {
+                console.error("Error processing forecast item:", itemError);
+            }
+        });
+
+        // Fallback if no HTML was generated
+        if (!todayHtml.trim()) {
+            todayHtml = `
+                <div class="text-center">
+                    <h6>Unable to load hourly forecasts</h6>
                 </div>
             `;
-        });
+        }
 
         document.getElementById("todayTempContainer").innerHTML = todayHtml;
 
     } catch (error) {
-        console.error(error);
-        alert("Failed to retrieve today's temperatures.");
+        console.error("Error in todayTemps function:", error);
+        // Show a user-friendly message instead of alert
+        document.getElementById("todayTempContainer").innerHTML = `
+            <div class="text-center">
+                <h6>Failed to load hourly data</h6>
+            </div>
+        `;
     }
 }
 
