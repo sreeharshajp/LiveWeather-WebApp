@@ -25,20 +25,27 @@ async function fetchData() {
         $('#skyDescription').text(responseskyDesciprtion);
 
         
-        // For Time stamos conversion this functio usefull.
-        function dateFormat(unixTimestamp) {
-            const date = new Date(unixTimestamp * 1000);
-            return date.toLocaleString();
+        // For Time stamps conversion with proper timezone handling
+        function dateFormat(unixTimestamp, timezone) {
+            const date = new Date((unixTimestamp + timezone) * 1000);
+            return date.toUTCString();
         }
 
-        let properDate = dateFormat(formattedData.dt);
-        let [date, time] = properDate.split(', ');
+        function timeFormat(unixTimestamp, timezone) {
+            const date = new Date((unixTimestamp + timezone) * 1000);
+            return date.toUTCString().split(' ')[4]; // Extract just the time part
+        }
 
-        $("#date").text(date);
-        $("#time").text(time);
+        let timezone = formattedData.timezone;
+        let currentDate = new Date((formattedData.dt + timezone) * 1000);
+        let formattedDate = currentDate.toUTCString().split(' ').slice(1, 4).join(' ');
+        let currentTime = timeFormat(formattedData.dt, timezone);
 
-        let sunriseTime = dateFormat(formattedData.sys.sunrise).split(', ')[1];
-        let sunsetTime = dateFormat(formattedData.sys.sunset).split(', ')[1];
+        $("#date").text(formattedDate);
+        $("#time").text(currentTime);
+
+        let sunriseTime = timeFormat(formattedData.sys.sunrise, timezone);
+        let sunsetTime = timeFormat(formattedData.sys.sunset, timezone);
 
         $("#sunriseTime").text(sunriseTime);
         $("#sunsetTime").text(sunsetTime);
@@ -48,7 +55,7 @@ async function fetchData() {
 
         fetchAQIData(lat, lon);
         nextFiveDays(lat, lon);
-        todayTemps(lat, lon);
+        todayTemps(lat, lon, timezone);
         fetchMetrics(lat, lon);
 
     } catch (error) {
@@ -177,7 +184,7 @@ async function fetchAQIData(lat, lon) {
 
 
 // Right Row 3 Todays Temperatures
-async function todayTemps(lat, lon) {
+async function todayTemps(lat, lon, timezone) {
     const apiUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=832c05c13ec70f0f3f55c83726af3247&units=metric`;
 
     try {
@@ -185,17 +192,24 @@ async function todayTemps(lat, lon) {
         if (!response.ok) throw new Error("Failed to fetch hourly temperatures");
         const data = await response.json();
 
-        let todayDate = new Date().toISOString().split("T")[0];
+        // Get today's date in the city's timezone
+        let cityDate = new Date((Date.now() / 1000 + timezone) * 1000);
+        let todayDate = cityDate.toISOString().split("T")[0];
+        
         let todayForecasts = data.list.filter(item => item.dt_txt.startsWith(todayDate));
-        let selectedHours = todayForecasts.slice(0, 6);
+        
+        // If no forecasts for today, take the first available forecasts
+        if (todayForecasts.length === 0) {
+            todayForecasts = data.list.slice(0, 6);
+        } else {
+            todayForecasts = todayForecasts.slice(0, 6);
+        }
 
         let todayHtml = "";
-        selectedHours.forEach(item => {
-            let time = new Date(item.dt_txt).toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-            });
+        todayForecasts.forEach(item => {
+            // Convert time to city's timezone
+            let cityTime = new Date((new Date(item.dt_txt).getTime() / 1000 + timezone) * 1000);
+            let time = cityTime.toUTCString().split(' ')[4].slice(0, 5); // Get HH:MM format
             let temp = item.main.temp.toFixed(1);
             let icon = item.weather[0].icon;
 
